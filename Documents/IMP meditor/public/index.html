@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DHIS2 → ACC Integration</title>
+</head>
+<body>
+
+<h2>DHIS2 Analytics Viewer</h2>
+
+<label>Data Element Group:</label><br>
+<select id="deGroup"></select>
+
+<br><br>
+
+<label>Period Type:</label><br>
+<select id="periodType">
+    <option value="Yearly">Yearly</option>
+    <option value="Monthly">Monthly</option>
+</select>
+
+<br><br>
+
+<label>Period:</label><br>
+<select id="period"></select>
+
+<br><br>
+
+<label>Organisation Unit:</label><br>
+<select id="orgUnit"></select>
+
+<br><br>
+
+<button onclick="loadAnalytics()">Load Data</button>
+
+<br><br>
+
+<table border="1" id="table">
+    <thead></thead>
+    <tbody></tbody>
+</table>
+
+<br>
+
+<button onclick="sendToExternal()">Send to ACC (Federal)</button>
+
+<script>
+
+let analyticsData = [];
+
+// 🔹 Generate Periods
+function generatePeriods(type) {
+    const periods = [];
+    const year = new Date().getFullYear();
+
+    if (type === "Yearly") {
+        for (let y = year - 5; y <= year; y++) {
+            periods.push({ value: y, label: y });
+        }
+    }
+
+    if (type === "Monthly") {
+        for (let m = 1; m <= 12; m++) {
+            const mm = String(m).padStart(2, '0');
+            periods.push({
+                value: `${year}${mm}`,
+                label: `${year}-${mm}`
+            });
+        }
+    }
+
+    return periods;
+}
+
+// 🔹 Load initial data
+async function loadData() {
+    const groups = await fetch('/api/dataElementGroups').then(r => r.json());
+    const ous = await fetch('/api/organisationUnits').then(r => r.json());
+
+    groups.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.text = g.displayName;
+        deGroup.appendChild(opt);
+    });
+
+    ous.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.id;
+        opt.text = o.displayName;
+        orgUnit.appendChild(opt);
+    });
+
+    updatePeriods();
+}
+
+function updatePeriods() {
+    const type = periodType.value;
+    period.innerHTML = "";
+
+    generatePeriods(type).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.value;
+        opt.text = p.label;
+        period.appendChild(opt);
+    });
+}
+
+periodType.addEventListener('change', updatePeriods);
+
+// 🔹 Load Analytics
+async function loadAnalytics() {
+    const res = await fetch(
+        `/api/analytics?groupId=${deGroup.value}&period=${period.value}&orgUnit=b3aCK1PTn5S`
+    );
+
+    const data = await res.json();
+    analyticsData = data;
+
+    renderTable(data);
+}
+
+// 🔹 Render Table
+function renderTable(data) {
+    const thead = document.querySelector('#table thead');
+    const tbody = document.querySelector('#table tbody');
+
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+
+    if (!data.length) return;
+
+    const headers = Object.keys(data[0]);
+
+    const trHead = document.createElement('tr');
+    headers.forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+
+    data.forEach(row => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => {
+            const td = document.createElement('td');
+            td.textContent = row[h];
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+// 🔹 Convert → EFY + Payload
+// function transformToPayload(data) {
+//     const grouped = {};
+
+//     data.forEach(row => {
+//         const year = row.pe.substring(0, 4);
+//         const value = Number(row.value || row.Value || 0);
+
+//         if (!grouped[year]) {
+//             grouped[year] = { actual: 0, target: 0 };
+//         }
+
+//         grouped[year].actual += value;
+//         grouped[year].target += value;
+//     });
+
+//     const period_distributions = Object.keys(grouped).map(year => {
+//         const efy = year - 7;
+
+//         return {
+//             name: `EFY ${efy}`,
+//             actual: grouped[year].actual,
+//             target: grouped[year].target,
+//             start_date: `${year - 1}-07-08`,
+//             end_date: `${year}-07-07`,
+//             period_frequency: "annually"
+//         };
+//     });
+
+//     return {
+//         implementing_unit_name: "ACC (Federal)",
+//         approval_requested_by_name: "Mintamir Lakew",
+//         approval_decision_by_name: "Amdeberhan Gizaw",
+//         period_distributions
+//     };
+// }
+
+// 🔹 Send Data
+async function sendToExternal() {
+    if (!analyticsData.length) {
+        alert("Load data first");
+        return;
+    }
+
+    const payload = analyticsData;
+
+    try {
+        const res = await fetch('/api/pushData', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await res.json();
+
+        if (!res.ok) {
+            throw new Error(result.error || 'Push failed');
+        }
+
+        alert(result.message || "Success");
+
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+}
+
+// 🔹 Init
+loadData();
+
+</script>
+
+</body>
+</html>
