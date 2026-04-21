@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
@@ -13,9 +14,9 @@ const mapping = JSON.parse(
     fs.readFileSync('./mapping.json', 'utf8')
 );
 // 🔧 CONFIG
-const DHIS2_BASE_URL = 'https://hispethiopia.org/ati/api';
-const USERNAME = 'admin';
-const PASSWORD = 'ATI_training2';
+const DHIS2_BASE_URL = process.env.DHIS2_BASE_URL;
+const USERNAME = process.env.DHIS2_USERNAME;
+const PASSWORD = process.env.DHIS2_PASSWORD;
 
 // ✅ Data Element Groups (NO PAGING)
 app.get('/api/dataElementGroups', async (req, res) => {
@@ -90,11 +91,10 @@ app.get('/api/analytics', async (req, res) => {
 async function getToken() {
     try {
         const res = await axios.post(
-            'https://imp.ati.gov.et:8080/api/auth/token/login/',
+            `${process.env.IMP_BASE_URL}/auth/login/`,
             {
-                email: 'imp@ati.gov.et',
-                password: 'P@ssw0rd!'
-            },
+                email: process.env.IMP_USERNAME,
+                password: process.env.IMP_PASSWORD            },
             {
                 headers: {
                     'Content-Type': 'application/json'
@@ -278,7 +278,7 @@ app.post('/api/pushData', async (req, res) => {
         }
 
         const token = await getToken();
-        const baseUrl = 'https://imp.ati.gov.et:8080/api/program-goal-measure-unit-distributions/';
+        const baseUrl = `${process.env.IMP_BASE_URL}/program-goal-measure-unit-distributions/`;
 
         const first = period_distributions[0];
 
