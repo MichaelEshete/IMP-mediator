@@ -6,5 +6,19 @@
     },
     "dataElements": {
       "ATI_PJDAS_% increase in agricultural income of SHFs (men & women)": 5
+    },
+    "periodTypes" : {
+      "lub6WyghIab": "Yearly",
+      "VpYeX9VrEAJ": "six-monthly",
+      "xe3vlSPbXom": "Yearly",
+      "IKPnWrXolWp": "bi-weekly",
+      "DRzsTL3r7T2": "Yearly",
+      "VShGI2bNZ2A": "Monthly",
+      "HKSHDUSKo1C": "Monthly",
+      "FCqc3dDZBx6": "Yearly",
+      "J4qgQLK80Dc": "six-monthly",
+      "IAzCthLLI3d": "bi-weekly",
+      "iLox8CfpLl7": "Monthly"
+
     }
   }

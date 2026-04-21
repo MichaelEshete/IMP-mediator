@@ -3,28 +3,35 @@
 <head>
     <title>DHIS2 → ACC Integration</title>
 </head>
+
 <body>
 
-<h2>DHIS2 Analytics Viewer</h2>
+<h2>DHIS2 -> IMP Mediator</h2>
 
+<!-- 🔹 Group Set -->
+<label>Data Element Group Set:</label><br>
+<select id="deGroupSet"></select>
+
+<br><br>
+
+<!-- 🔹 Group -->
 <label>Data Element Group:</label><br>
 <select id="deGroup"></select>
 
 <br><br>
 
-<label>Period Type:</label><br>
-<select id="periodType">
-    <option value="Yearly">Yearly</option>
-    <option value="Monthly">Monthly</option>
-</select>
+<!-- 🔹 Period Type -->
+<select id="periodType"></select>
 
 <br><br>
 
+<!-- 🔹 Period -->
 <label>Period:</label><br>
 <select id="period"></select>
 
 <br><br>
 
+<!-- 🔹 Org Unit -->
 <label>Organisation Unit:</label><br>
 <select id="orgUnit"></select>
 
@@ -47,42 +54,85 @@
 
 let analyticsData = [];
 
-// 🔹 Generate Periods
+/* ---------------------------
+   PERIODS
+----------------------------*/
 function generatePeriods(type) {
     const periods = [];
     const year = new Date().getFullYear();
 
     if (type === "Yearly") {
         for (let y = year - 5; y <= year; y++) {
-            periods.push({ value: y, label: y });
+            periods.push({
+                value: `${y}`,
+                label: `${y}`
+            });
         }
     }
 
     if (type === "Monthly") {
-        for (let m = 1; m <= 12; m++) {
-            const mm = String(m).padStart(2, '0');
-            periods.push({
-                value: `${year}${mm}`,
-                label: `${year}-${mm}`
-            });
+        for (let y = year - 2; y <= year; y++) {
+            for (let m = 1; m <= 12; m++) {
+                const mm = String(m).padStart(2, '0');
+                periods.push({
+                    value: `${y}${mm}`,
+                    label: `${y}-${mm}`
+                });
+            }
+        }
+    }
+
+    if (type === "six-monthly") {
+        for (let y = year - 2; y <= year; y++) {
+            periods.push(
+                { value: `${y}S1`, label: `${y} (Jan-Jun)` },
+                { value: `${y}S2`, label: `${y} (Jul-Dec)` }
+            );
+        }
+    }
+
+    if (type === "bi-weekly") {
+        for (let y = year - 1; y <= year; y++) {
+            for (let w = 1; w <= 26; w++) {
+                const ww = String(w).padStart(2, '0');
+                periods.push({
+                    value: `${y}W${ww}`,
+                    label: `${y} Week ${ww}`
+                });
+            }
         }
     }
 
     return periods;
 }
 
-// 🔹 Load initial data
+/* ---------------------------
+   LOAD INITIAL DATA
+----------------------------*/
 async function loadData() {
-    const groups = await fetch('/api/dataElementGroups').then(r => r.json());
-    const ous = await fetch('/api/organisationUnits').then(r => r.json());
 
-    groups.forEach(g => {
+    const groupSets = await fetch('/api/dataElementGroupSets').then(r => r.json());
+    const ous = await fetch('/api/organisationUnits').then(r => r.json());
+    const mapping = await fetch('/api/mapping').then(r => r.json());
+
+// fill period types dynamically
+Object.values(mapping.periodTypes)
+    .filter((v, i, arr) => arr.indexOf(v) === i) // unique values
+    .forEach(type => {
         const opt = document.createElement('option');
-        opt.value = g.id;
-        opt.text = g.displayName;
-        deGroup.appendChild(opt);
+        opt.value = type;
+        opt.text = type;
+        periodType.appendChild(opt);
+    });
+    // Group Sets
+    groupSets.forEach(gs => {
+        const opt = document.createElement('option');
+        opt.value = gs.id;
+        opt.text = gs.displayName;
+        deGroupSet.appendChild(opt);
     });
 
+    // Org Units
     ous.forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.id;
@@ -93,9 +143,13 @@ async function loadData() {
     updatePeriods();
 }
 
+/* ---------------------------
+   UPDATE PERIODS
+----------------------------*/
 function updatePeriods() {
     const type = periodType.value;
     period.innerHTML = "";
+    const periods = generatePeriods(type);
 
     generatePeriods(type).forEach(p => {
         const opt = document.createElement('option');
@@ -107,10 +161,52 @@ function updatePeriods() {
 
 periodType.addEventListener('change', updatePeriods);
 
-// 🔹 Load Analytics
+/* ---------------------------
+   GROUP SET → GROUPS
+----------------------------*/
+
+deGroupSet.addEventListener('change', async () => {
+
+const groupSets = await fetch('/api/dataElementGroupSets').then(r => r.json());
+const periodTypes = await fetch('/api/mapping/periodTypes').then(r => r.json());
+
+const selectedGroupSetId = deGroupSet.value;
+
+const selected = groupSets.find(gs => gs.id === selectedGroupSetId);
+
+// -----------------------------
+// 1. SET PERIOD TYPE FROM MAPPING
+// -----------------------------
+const mappedPeriodType = periodTypes[selectedGroupSetId];
+
+if (mappedPeriodType) {
+    periodType.value = mappedPeriodType;
+}
+
+// IMPORTANT: update periods AFTER setting type
+updatePeriods();
+
+// -----------------------------
+// 2. LOAD GROUPS
+// -----------------------------
+deGroup.innerHTML = "";
+
+if (!selected?.dataElementGroups) return;
+
+selected.dataElementGroups.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g.id;
+    opt.text = g.displayName;
+    deGroup.appendChild(opt);
+});
+});
+/* ---------------------------
+   LOAD ANALYTICS
+----------------------------*/
 async function loadAnalytics() {
+
     const res = await fetch(
-        `/api/analytics?groupId=${deGroup.value}&period=${period.value}&orgUnit=b3aCK1PTn5S`
+        `/api/analytics?groupId=${deGroup.value}&period=${period.value}&orgUnit=${orgUnit.value}`
     );
 
     const data = await res.json();
@@ -119,7 +215,9 @@ async function loadAnalytics() {
     renderTable(data);
 }
 
-// 🔹 Render Table
+/* ---------------------------
+   RENDER TABLE
+----------------------------*/
 function renderTable(data) {
     const thead = document.querySelector('#table thead');
     const tbody = document.querySelector('#table tbody');
@@ -132,75 +230,43 @@ function renderTable(data) {
     const headers = Object.keys(data[0]);
 
     const trHead = document.createElement('tr');
+
     headers.forEach(h => {
         const th = document.createElement('th');
         th.textContent = h;
         trHead.appendChild(th);
     });
+
     thead.appendChild(trHead);
 
     data.forEach(row => {
         const tr = document.createElement('tr');
+
         headers.forEach(h => {
             const td = document.createElement('td');
             td.textContent = row[h];
             tr.appendChild(td);
         });
+
         tbody.appendChild(tr);
     });
 }
 
-// 🔹 Convert → EFY + Payload
-// function transformToPayload(data) {
-//     const grouped = {};
-
-//     data.forEach(row => {
-//         const year = row.pe.substring(0, 4);
-//         const value = Number(row.value || row.Value || 0);
-
-//         if (!grouped[year]) {
-//             grouped[year] = { actual: 0, target: 0 };
-//         }
-
-//         grouped[year].actual += value;
-//         grouped[year].target += value;
-//     });
-
-//     const period_distributions = Object.keys(grouped).map(year => {
-//         const efy = year - 7;
-
-//         return {
-//             name: `EFY ${efy}`,
-//             actual: grouped[year].actual,
-//             target: grouped[year].target,
-//             start_date: `${year - 1}-07-08`,
-//             end_date: `${year}-07-07`,
-//             period_frequency: "annually"
-//         };
-//     });
-
-//     return {
-//         implementing_unit_name: "ACC (Federal)",
-//         approval_requested_by_name: "Mintamir Lakew",
-//         approval_decision_by_name: "Amdeberhan Gizaw",
-//         period_distributions
-//     };
-// }
-
-// 🔹 Send Data
+/* ---------------------------
+   SEND TO BACKEND
+----------------------------*/
 async function sendToExternal() {
+
     if (!analyticsData.length) {
         alert("Load data first");
         return;
     }
 
-    const payload = analyticsData;
-
     try {
         const res = await fetch('/api/pushData', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(analyticsData)
         });
 
         const result = await res.json();
@@ -216,7 +282,9 @@ async function sendToExternal() {
     }
 }
 
-// 🔹 Init
+/* ---------------------------
+   INIT
+----------------------------*/
 loadData();
 
 </script>

@@ -18,6 +18,42 @@ const DHIS2_BASE_URL = process.env.DHIS2_BASE_URL;
 const USERNAME = process.env.DHIS2_USERNAME;
 const PASSWORD = process.env.DHIS2_PASSWORD;
 
+//Data Element Group Sets
+app.get('/api/dataElementGroupSets', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${DHIS2_BASE_URL}/dataElementGroupSets?paging=false&fields=id,displayName,dataElementGroups[id,displayName]`,
+            {
+                auth: {
+                    username: USERNAME,
+                    password: PASSWORD
+                }
+            }
+        );
+
+        res.json(response.data.dataElementGroupSets);
+    } catch (err) {
+        console.error("❌ GroupSets error:", err.response?.data || err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/mapping', (req, res) => {
+    try {
+        res.json(mapping);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+app.get('/api/mapping/periodTypes', (req, res) => {
+    try {
+        res.json(mapping.periodTypes);
+        console.log("📅 Period Types:", mapping.periodTypes);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ✅ Data Element Groups (NO PAGING)
 app.get('/api/dataElementGroups', async (req, res) => {
     try {
@@ -43,12 +79,16 @@ app.get('/api/organisationUnits', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
+function getPeriodTypeByGroupSet(groupSetId) {
+    return mapping.periodTypes[groupSetId] || "Yearly";
+}
 // ✅ Analytics with DISAGGREGATION
 app.get('/api/analytics', async (req, res) => {
-    const { groupId, period, orgUnit } = req.query;
+    const { groupId,groupSetId, period, orgUnit } = req.query;
 
     try {
+        const periodType = getPeriodTypeByGroupSet(groupSetId);
+
         const coDimension =
             'lBnoNc1T39R:Mbq12GujYxI;kgXWhJFcw33;Ql3Sy6YjrSN;TLixouvYRPF;SAXhVtAwMEh;pKWpjLWZK0a;snD5u6yDER3';
 
