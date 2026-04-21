@@ -91,9 +91,9 @@ app.get('/api/analytics', async (req, res) => {
 async function getToken() {
     try {
         const res = await axios.post(
-            `${process.env.IMP_BASE_URL}/auth/login/`,
+            `${process.env.IMP_BASE_URL}/auth/token/login/`,
             {
-                email: process.env.IMP_USERNAME,
+                email: process.env.IMP_EMAIL,
                 password: process.env.IMP_PASSWORD            },
             {
                 headers: {
@@ -182,39 +182,43 @@ function transformToPayload(data) {
 
     return payload;
 }
-// ✅ PUSH TO EXTERNAL SYSTEM
 // app.post('/api/pushData', async (req, res) => {
 //     try {
 //         const rawData = req.body;
 
 //         const period_distributions = transformToPayload(rawData);
 
-//         if (!period_distributions.length) {
+//         if (!Array.isArray(period_distributions) || !period_distributions.length) {
 //             return res.status(400).json({ error: "No valid data" });
 //         }
 
 //         const token = await getToken();
+//         const baseUrl = `${process.env.IMP_BASE_URL}/project-goal-measure-unit-distributions/`;
 
 //         const first = period_distributions[0];
 
-//         const baseUrl =
-//             'https://imp.ati.gov.et:8080/api/project-goal-measure-unit-distributions/';
+//         const implementing_unit = Number(first.implementing_unit);
+//         const project_goal_measure = Number(first.project_goal_measure);
 
-//         // 🔍 STEP 1: CHECK EXISTING
+//         if (!implementing_unit || !project_goal_measure) {
+//             return res.status(400).json({
+//                 error: "Invalid mapping (IDs missing)"
+//             });
+//         }
+
+//         // 🔍 check existing
 //         const existingRes = await axios.get(baseUrl, {
 //             headers: { Authorization: `Token ${token}` }
 //         });
 
 //         const existing = existingRes.data.find(item =>
-//             item.implementing_unit === first.implementing_unit &&
-//             item.project_goal_measure === first.project_goal_measure
+//             Number(item.implementing_unit) === implementing_unit &&
+//             Number(item.project_goal_measure) === project_goal_measure
 //         );
 
 //         const payload = {
-//             implementing_unit: first.implementing_unit,
-//             project_goal_measure: first.project_goal_measure,
-//             start_date: first.start_date,
-//             end_date: first.end_date,
+//             implementing_unit,
+//             project_goal_measure,
 
 //             implementing_unit_name: "ACC (Federal)",
 //             approval_requested_by_name: "Mintamir Lakew",
@@ -222,76 +226,81 @@ function transformToPayload(data) {
 
 //             period_distributions: period_distributions.map(p => ({
 //                 name: `EFY ${Number(p.start_date.slice(0,4)) - 7}`,
-//                 actual: p.actual,
-//                 target: p.target,
 //                 start_date: p.start_date,
 //                 end_date: p.end_date,
+//                 actual: Number(p.actual),
+//                 target: Number(p.target),
 //                 period_frequency: "annually"
 //             }))
 //         };
 
-//         let response;
+//         let recordId;
 
+//         // 1️⃣ CREATE OR UPDATE
 //         if (existing) {
-//             console.log("🔁 Updating existing record:", existing.id);
-
-//             response = await axios.put(
+//             const updated = await axios.put(
 //                 `${baseUrl}${existing.id}/`,
 //                 payload,
-//                 {
-//                     headers: { Authorization: `Token ${token}` }
-//                 }
+//                 { headers: { Authorization: `Token ${token}` } }
 //             );
-//         } else {
-//             console.log("🆕 Creating new record");
 
-//             response = await axios.post(
+//             recordId = existing.id;
+//         } else {
+//             const created = await axios.post(
 //                 baseUrl,
 //                 payload,
-//                 {
-//                     headers: { Authorization: `Token ${token}` }
-//                 }
+//                 { headers: { Authorization: `Token ${token}` } }
 //             );
+
+//             recordId = created.data.id;
 //         }
 
+//         // 2️⃣ SEND FOR APPROVAL (IMPORTANT STEP)
+//         const approvalResponse = await axios.post(
+//             `${baseUrl}${recordId}/approval-request/`,
+//             {
+//                 comments: "Auto-submitted from integration system"
+//             },
+//             {
+//                 headers: {
+//                     Authorization: `Token ${token}`,
+//                     'Content-Type': 'application/json'
+//                 }
+//             }
+//         );
+
 //         return res.json({
-//             message: "✅ Synced successfully",
-//             data: response.data
+//             message: "✅ Data submitted for approval successfully",
+//             recordId,
+//             approval: approvalResponse.data
 //         });
 
 //     } catch (err) {
-//         console.error("❌ Push error:", err.response?.data || err.message);
+//         console.error("❌ Error:", err.response?.data || err.message);
 
 //         return res.status(500).json({
 //             error: err.response?.data || err.message
 //         });
 //     }
 // });
+
 app.post('/api/pushData', async (req, res) => {
     try {
         const rawData = req.body;
-
         const period_distributions = transformToPayload(rawData);
 
-        if (!Array.isArray(period_distributions) || !period_distributions.length) {
+        if (!period_distributions.length) {
             return res.status(400).json({ error: "No valid data" });
         }
 
         const token = await getToken();
-        const baseUrl = `${process.env.IMP_BASE_URL}/program-goal-measure-unit-distributions/`;
+        const baseUrl = `${process.env.IMP_BASE_URL}/project-goal-measure-unit-distributions`;
 
         const first = period_distributions[0];
-
         const implementing_unit = Number(first.implementing_unit);
         const project_goal_measure = Number(first.project_goal_measure);
 
-        if (!implementing_unit || !project_goal_measure) {
-            return res.status(400).json({
-                error: "Invalid mapping (IDs missing)"
-            });
-        }
-
-        // 🔍 check existing
+        // 🔍 Find existing record
         const existingRes = await axios.get(baseUrl, {
             headers: { Authorization: `Token ${token}` }
         });
@@ -301,16 +310,19 @@ app.post('/api/pushData', async (req, res) => {
             Number(item.project_goal_measure) === project_goal_measure
         );
 
-        const payload = {
+        if (!existing) {
+            return res.status(404).json({ error: "❌ Record not found" });
+        }
+
+        // 1️⃣ PATCH the actual/target data first
+        const patchUrl = `${baseUrl}/${existing.id}`;
+        console.log("📝 PATCHing data to:", patchUrl);
+
+        const patchPayload = {
             implementing_unit,
             project_goal_measure,
-
-            implementing_unit_name: "ACC (Federal)",
-            approval_requested_by_name: "Mintamir Lakew",
-            approval_decision_by_name: "Amdeberhan Gizaw",
-
             period_distributions: period_distributions.map(p => ({
-                name: `EFY ${Number(p.start_date.slice(0,4)) - 7}`,
+                name: `EFY ${Number(p.start_date.slice(0, 4)) - 7}`,
                 start_date: p.start_date,
                 end_date: p.end_date,
                 actual: Number(p.actual),
@@ -318,54 +330,42 @@ app.post('/api/pushData', async (req, res) => {
                 period_frequency: "annually"
             }))
         };
-
-        let recordId;
-
-        // 1️⃣ CREATE OR UPDATE
-        if (existing) {
-            const updated = await axios.put(
-                `${baseUrl}${existing.id}/`,
-                payload,
-                { headers: { Authorization: `Token ${token}` } }
-            );
-
-            recordId = existing.id;
-        } else {
-            const created = await axios.post(
-                baseUrl,
-                payload,
-                { headers: { Authorization: `Token ${token}` } }
-            );
-
-            recordId = created.data.id;
-        }
-
-        // 2️⃣ SEND FOR APPROVAL (IMPORTANT STEP)
-        const approvalResponse = await axios.post(
-            `${baseUrl}${recordId}/approval-request/`,
-            {
-                comments: "Auto-submitted from integration system"
+        console.log("📦 PATCH Payload:", patchPayload);
+        await axios.patch(patchUrl, patchPayload, {
+            headers: {
+                Authorization: `Token ${token}`,
+                'Content-Type': 'application/json'
             },
+            maxRedirects: 0
+        });
+
+        console.log("✅ Data patched successfully");
+
+        // 2️⃣ NOW request approval
+        const approvalUrl = `${baseUrl}/${existing.id}/approval-request/`;
+        console.log("📤 POSTing approval to:", approvalUrl);
+
+        const approvalResponse = await axios.put(
+            approvalUrl,
+            { comments: "Auto-submitted from DHIS2 integration" },
             {
                 headers: {
                     Authorization: `Token ${token}`,
                     'Content-Type': 'application/json'
-                }
+                },
+                maxRedirects: 0
             }
         );
 
         return res.json({
-            message: "✅ Data submitted for approval successfully",
-            recordId,
+            message: "✅ Data updated and sent for approval",
+            recordId: existing.id,
             approval: approvalResponse.data
         });
 
     } catch (err) {
         console.error("❌ Error:", err.response?.data || err.message);
-
-        return res.status(500).json({
-            error: err.response?.data || err.message
-        });
+        res.status(500).json({ error: err.response?.data || err.message });
     }
 });
 const PORT = 3000;
